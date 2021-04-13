@@ -1,0 +1,95 @@
+DCCS1D		: (string) Type essai
+4140		        : (string) matériau
+0		           : (string) numero éprouvette
+0		           : (string) numero essai
+/home/tdelaselle/Documents/Données_essais/Données_brutes		            : (string) racine des données Données_brutes
+/home/tdelaselle/Documents/Données_essais/Traitement_essais		         : (string) racine pour l'enregistrement
+12			: (int) nombre de lignes initiales à sauter (header)
+3			: (int) choice of method: 1 = coherence, 2 = correlation, 3 = both
+700	    : (integer) number of samples per recording -> Pour partie impulsionnelle = 100 ms:500;Pour signal court classique:5127
+7          : (integer) PW, which gives the duration (in samples) of analyzed window as 2^PW->partie impuls=100 ms: 9 => 2^PW = 512
+0.01		: (float) lower cut-off frequency (in units of the sampling freq) -> f0   
+0.03		: (float) delta f length of frequency step (in units of the sampling freq) -> "dt"
+4			: (float) ratio between f2 and f1 for each frequency window -> "gain"
+2			: (int) 1/2 length for smoothing coherency or for interpolating correlation -> exp : 3 better
+0.0			: (float) threshold coherency (or correlation if not computing coherency) for outputting pairs of earthquakes
+8			: (int) nombre d'évènements
+1			: (int) nombre de capteurs
+
+5e6         : sampling freq (Hz)
+........................................................
+
+Anciens paramètres : 
+MMFC0T_none_0.1_		: (string) nom du préfixe des fichiers (le nom complet sera ce NOM suivi de "X_Y.txt" avec X = # voie, Y = # évenement)
+/home/tdelaselle/Documents/Données_essais/Données_brutes/MMFC0T/none/0.1/EA/waveforms	: (string) name of directory containing the data files to be read
+/home/tdelaselle/Documents/Données_essais/Traitement_essais/MMFC0T/none/ResCohcor.txt	: (string) name of output file (containing the results)
+
+
+----------------------  Fonctionnement cohcor.c  -------------------------
+
+Dans console :
+
+cd /home/tdelaselle/Documents/Codes/Cohcor
+gcc cohcor.c -lm -fno-stack-protector -o cohcor
+./cohcor parametres
+
+Résultats à trouver dans le dossier relatif aux données traitées de l'essai en question
+avec les infos suivantes : 
+
+Le format de sortie est : (1 ligne = 1 corrélation entre 2 évènements vus à 1 capteur)
+
+si tu choisis la méthode 3 (cohérence & corrélation) :
+* # évènement 1
+* # évènement 2
+* # capteur
+* cohérence
+* décalage en temps entre les 2 signaux calculés à partir de la cohérence (attention, c'est
+un décalage relatif, en supposant que le temps origine est le même pour les 2 évènements,
+donc le vrai décalage (absolu) est celui là + le décalage entre les temps origines)
+* incertitude sur ce décalage
+* la fréquence f1 de la fenêtre de fréquence qui maximise la cohérence (cf + bas)
+* corrélation
+* décalage en temps (comme au dessus) mais cette fois ci calculé à partir de la
+corrélation, pas de la cohérence. Une manière de détecter et supprimer les erreurs
+(outliers) est de vérifier que ces deux décalages sont suffisamment proches (si ils
+ne le sont pas c'est qu'il y a un pb avec au moins l'un des deux ; il y a plein de
+raisons physiques pour que cela puisse arriver occasionnellement)
+* la fréquence f1 de la fenêtre de fréquence qui maximise la corrélation (cf + bas)
+* le rapport d'amplitude entre les 2 évènements à cette voie là.
+
+Les temps sont en échantillons, pas en secondes.
+
+Plages de fréquence :
+le programme filtre les signaux entre deux fréquences f1 et f2 (filtre passe bande Buttersworth d'ordre
+10 - si tu veux tu peux changer l'ordre, c'est la valeur no définie en ligne 9 du programme). Il teste
+un ensemble de fenêtres fréquentielles:
+* 1ere fenêtre : f1 = f0, f2 = f1*gain, avec f0 défini en ligne 8 du fichier paramètres, et gain défini
+en ligne 10.
+* 2e fenêtre : f1 = f0+df, f2=f1*gain, avec df défini en ligne 9 
+* 3e fenêtre : f1 = f0+2*df, f2=f1*gain
+etc... jusqu'à arriver à f2=0.5.
+Puis il garde le max de cohérence, ou de corrélation, selon la méthode choisie.
+Important : toutes les fréquences sont définies en unité de la freq d'échantillonnage, donc f=0.5 est
+Nyquist.
+
+
+Pour PW, il faut que je détaille un peu : l'algorithme
+est itératif. Imagine que A et B sont les deux signaux, et que B est une version
+décalée en temps de A. On prend le début de A (les 2^PW premiers échantillons)
+et même chose pour B : 
+AA=A(1:2^PW)
+BB=B(1:2^PW)
+puis on corrèle ou cohère AA et BB. Ca permet de déduire le décalage en temps
+(en corrélation, ça correspond au décalage qui donne le max ; en cohérence c'est
+la pente de la phase). Du coup on décale d'autant BB : BB=B(dec+1:dec+2^PW)
+et on réitère ainsi jusqu'à ce le décalage devient nul. C'est une procédure qui
+permet en sismo de par exemple ne travailler que sur les ondes P ou S selon ce
+qu'on veut faire. Pas forcément hyper utile pour toi, mais je ne peux pas dire.
+
+Il faut donc que la partie du signal qui est la plus énergétique soit de longueur 2^PW.
+Si tu prends PW trop petit alors tu vas permettre de corréler / cohérer trop facilement,
+et à l'inverse si tu prends PW trop grand. Au passage, tu vois que la valeur "moyenne"
+de la corrélation ou cohérence (en gros 0.2 à 0.3 dans ton test) dépend de PW, et de la 
+1/2 longueur de lissage aussi, donc il ne faut pas faire de jugement absolu dessus.
+
+En corrélation, il y a d'abord un filtre passe-bande sur la plage de fréquence f1-f2.
